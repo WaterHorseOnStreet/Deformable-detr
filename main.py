@@ -254,13 +254,13 @@ def main(args):
     if args.load_state:
         
 
-        # cp_path = os.path.join(here,'./checkpoint/r50_deformable_detr_single_scale_dc5-checkpoint.pth')
-        cp_path = os.path.join(here,'./output/random_train_true_test/checkpoint0004.pth')
+        cp_path = os.path.join(here,'./checkpoint/r50_deformable_detr_single_scale_dc5-checkpoint.pth')
+        # cp_path = os.path.join(here,'./output/random_train_true_test/checkpoint0004.pth')
         cp = torch.load(cp_path)
 
         mks = model.state_dict()
         #pretrained_dict = {k: v for k, v in cp['model'].items() if k in mks and k.split('.')[0] != 'class_embed'}
-        pretrained_dict = {k: v for k, v in cp['model'].items() if k in mks}#and 'class_embed' not in k }#and 'query_embed' not in k}
+        pretrained_dict = {k: v for k, v in cp['model'].items() if k in mks and 'query_embed' not in k}#and 'class_embed' not in k }#and 'query_embed' not in k}
         mks.update(pretrained_dict)
         model.load_state_dict(mks)
 

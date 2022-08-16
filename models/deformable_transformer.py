@@ -65,8 +65,8 @@ class DeformableTransformer(nn.Module):
             self.pos_trans_norm = nn.LayerNorm(d_model * 2)
         else:
             #self.reference_points = nn.Linear(d_model, 2)
-            self.pos_trans = nn.Linear(d_model, d_model * 2)
-            self.pos_trans_norm = nn.LayerNorm(d_model * 2)
+            self.pos_trans = nn.Linear(2, d_model)
+            self.pos_trans_norm = nn.LayerNorm(d_model)
 
 
 
@@ -191,9 +191,24 @@ class DeformableTransformer(nn.Module):
         level_start_index = torch.cat((spatial_shapes.new_zeros((1, )), spatial_shapes.prod(1).cumsum(0)[:-1]))
         valid_ratios = torch.stack([self.get_valid_ratio(m) for m in masks], 1)
 
-        # encoder
-        memory = self.encoder(src_flatten, spatial_shapes, level_start_index, valid_ratios, lvl_pos_embed_flatten, mask_flatten)  
+        # concat the support feature to the flattend source signal
+        # support_feature = support_feature.permute(1,0,2)
+        # src_flatten_s = torch.cat([src_flatten,support_feature],1)
+        # lvl_pos_embed_flatten_s = torch.cat([lvl_pos_embed_flatten,torch.zeros_like(support_feature,device=support_feature.device)],1)
+        # mask_flatten_s = torch.cat([mask_flatten,torch.ones_like(support_feature[:,:,0],device=support_feature.device)],1)
 
+        # encoder
+        # print(level_start_index)
+        # print(valid_ratios)
+        memory = self.encoder(src_flatten, spatial_shapes, level_start_index, valid_ratios, lvl_pos_embed_flatten, mask_flatten)  
+        support_feature = support_feature.permute(1,0,2)
+        support_spatial = torch.as_tensor([[1,1]],dtype=torch.long,device=support_feature.device)
+        support_level = torch.as_tensor([0],device=support_feature.device)
+        support_valid_ratio = torch.as_tensor([[[1., 1.]]],device=support_feature.device)
+        support_feature = self.encoder(support_feature,support_spatial,support_level,support_valid_ratio,torch.zeros_like(support_feature,device=support_feature.device),torch.ones_like(support_feature[:,:,0],dtype=torch.bool,device=support_feature.device))
+        support_feature = support_feature.permute(1,0,2)
+
+        #memory = memory[:,:src_flatten.shape[1],:]
         # prepare input for decoder
         bs, _, c = memory.shape
         if self.two_stage:
@@ -214,12 +229,14 @@ class DeformableTransformer(nn.Module):
         else:
             # query_embed, tgt = torch.split(query_embed, c, dim=1)
             # query_embed = query_embed.unsqueeze(0).expand(bs, -1, -1)
-            # tgt = tgt.unsqueeze(0).expand(bs, -1, -1)
+            tgt = query_embed.unsqueeze(0).expand(bs, -1, -1)
             # reference_points = self.reference_points(query_embed).sigmoid()
 
             support_attens = []
+            mem = memory.permute(1,0,2)
+
             for idx, (src_flatten,src_shape) in enumerate(zip(dict_4_atten['srcs'],dict_4_atten['shapes'])):
-                _,support_atten = self.support(support_feature,src_flatten.permute(1,0,2),memory_key_padding_mask=mask_flatten, pos=lvl_pos_embed_flatten.permute(1,0,2))
+                _,support_atten = self.support(support_feature,mem,memory_key_padding_mask=torch.ones([mem.shape[1],mem.shape[0]],device=mem.device), pos=torch.zeros_like(mem,device=mem.device))
 
 
                 _,support_atten = self.get_query_embedd_from_support(support_atten,src_shape,orignal_shape,num_queries,mode)
@@ -228,23 +245,24 @@ class DeformableTransformer(nn.Module):
             if mode=='training':
                 true_atten = torch.ones_like(true_atten,device=true_atten.device)
             reference_points = self.get_query_embedd_from_pred_atten_map(true_atten,orignal_shape,num_queries,mode)
-            pos = self.pos2posemb2d(inverse_sigmoid(reference_points))
+            # pos = self.pos2posemb2d(inverse_sigmoid(reference_points))
+            pos = inverse_sigmoid(reference_points)
             #print(pos.shape)
 
             #query_embeds = []
             # for i in range(pos.shape[0]):
-            query_embed = self.pos_trans_norm(self.pos_trans(pos))
+            query_pos = self.pos_trans_norm(self.pos_trans(pos))
             #query_embeds.append(query_embed)
             
             #query_embed = torch.stack(query_embeds,dim=0)
-            query_embed, tgt = torch.split(query_embed, c, dim=-1)
+            # query_embed, tgt = torch.split(query_embed, c, dim=-1)
 
         
         init_reference_out = reference_points
             
         # decoder
         hs, inter_references = self.decoder(tgt, reference_points, memory,
-                                            spatial_shapes, level_start_index, valid_ratios, query_embed, mask_flatten)
+                                            spatial_shapes, level_start_index, valid_ratios, query_pos, mask_flatten)
 
         inter_references_out = inter_references
         # if self.two_stage:

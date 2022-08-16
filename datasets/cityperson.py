@@ -234,11 +234,16 @@ def build_cityperson(image_set, args):
     root = Path(args.cityperson_path)
     assert root.exists(), f'provided COCO path {root} does not exist'
     mode = 'instances'
+    # for cityperson dataset, data not avaliable now
     PATHS = {
-        "train": (root, root / "annotations" / 'train_pedestrian.json'),
-        "val": (root / "leftImg8bit/val", root / "annotations" / 'val_pedestrian.json'),
+        "train": (root / "leftimage8bit" , root / "cityscapes_ann" / 'train.json'),
+        "val": (root / "leftimage8bit"/ "leftImg8bit_trainvaltest" /"leftImg8bit/val", root / "cityscapes_ann" / 'val_gt.json'),
     }
-
+    # for clatech pedestrian dataset, data avaliable now
+    # PATHS = {
+    #     "train": (root / "images", root / "annotations" / 'train.json'),
+    #     "val": (root / "images", root / "annotations" / 'test.json'),
+    # }
     img_folder, ann_file = PATHS[image_set]
     dataset = CocoDetection(img_folder, ann_file, transforms=make_coco_transforms(image_set,False), atten_transform = make_coco_transforms(image_set,True), return_masks=args.masks,
                             cache_mode=args.cache_mode, local_rank=get_local_rank(), local_size=get_local_size())

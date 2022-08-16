@@ -64,7 +64,7 @@ class DeformableDETR(nn.Module):
         self.input_proj = nn.Conv2d(backbone[0].num_channels[-1], hidden_dim, kernel_size=1)
 
         if not two_stage:
-            self.query_embed = nn.Embedding(num_queries, hidden_dim*2)
+            self.query_embed = nn.Embedding(num_queries, hidden_dim)
         if num_feature_levels > 1:
             num_backbone_outs = len(self.backbone.strides)
             input_proj_list = []
@@ -124,8 +124,8 @@ class DeformableDETR(nn.Module):
             p.requires_grad=False
         # for p in self.backbone.parameters():
         #     p.requires_grad=False
-        for p in self.query_embed.parameters():
-            p.requires_grad = False
+        # for p in self.query_embed.parameters():
+        #     p.requires_grad = False
         
 
     def forward(self, samples: NestedTensor,support_imgs, true_atten,mode='training'):
