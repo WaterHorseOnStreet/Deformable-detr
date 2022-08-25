@@ -76,8 +76,8 @@ class BackboneBase(nn.Module):
             return_layers = {"layer1": "0", "layer2": "1", "layer3": "2", "layer4": "3"}
 
             #return_layers = {"layer2": "0", "layer3": "1", "layer4": "2"}
-            self.strides = [8, 16, 32]
-            self.num_channels = [512, 1024, 2048]
+            self.strides = [4, 8, 16, 32]
+            self.num_channels = [256, 512, 1024, 2048]
         else:
             return_layers = {'layer4': "0"}
             self.strides = [32]
@@ -106,7 +106,7 @@ class Backbone(BackboneBase):
             replace_stride_with_dilation=[False, False, dilation],
             pretrained=is_main_process(), norm_layer=norm_layer)
         assert name not in ('resnet18', 'resnet34'), "number of channels are hard coded"
-        super().__init__(backbone, train_backbone, return_interm_layers,is_supp)
+        super().__init__(backbone, train_backbone, return_interm_layers, is_supp)
         if dilation:
             self.strides[-1] = self.strides[-1] // 2
 

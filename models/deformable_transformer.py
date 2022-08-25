@@ -37,6 +37,15 @@ class DeformableTransformer(nn.Module):
         self.two_stage_num_proposals = two_stage_num_proposals
         self.support_prior = support_prior
 
+        if support_prior:
+            pre_support_layer = TransformerPreSupportLayer(d_model, 4, dim_feedforward,
+                                                    dropout, activation, normalize_before) 
+            support_layer = TransformerSupportLayer(d_model, 4, dim_feedforward,
+                                                dropout, activation, normalize_before)
+            support_norm = nn.LayerNorm(d_model)
+            self.support = TransformerSupport(support_layer, pre_support_layer, num_embedding_layer, support_norm,
+                                          return_intermediate=return_intermediate_dec)
+
         encoder_layer = DeformableTransformerEncoderLayer(d_model, dim_feedforward,
                                                           dropout, activation,
                                                           num_feature_levels, nhead, enc_n_points)
@@ -47,14 +56,7 @@ class DeformableTransformer(nn.Module):
                                                         num_feature_levels, nhead, dec_n_points)
         
         self.decoder = DeformableTransformerDecoder(decoder_layer, num_decoder_layers, return_intermediate_dec)
-        if support_prior:
-            pre_support_layer = TransformerPreSupportLayer(d_model, nhead, dim_feedforward,
-                                                    dropout, activation, normalize_before) 
-            support_layer = TransformerSupportLayer(d_model, nhead, dim_feedforward,
-                                                dropout, activation, normalize_before)
-            support_norm = nn.LayerNorm(d_model)
-            self.support = TransformerSupport(support_layer, pre_support_layer, num_embedding_layer, support_norm,
-                                          return_intermediate=return_intermediate_dec)
+
         
         self.level_embed = nn.Parameter(torch.Tensor(num_feature_levels, d_model))
 
@@ -65,8 +67,8 @@ class DeformableTransformer(nn.Module):
             self.pos_trans_norm = nn.LayerNorm(d_model * 2)
         else:
             #self.reference_points = nn.Linear(d_model, 2)
-            self.pos_trans = nn.Linear(2, d_model)
-            self.pos_trans_norm = nn.LayerNorm(d_model)
+            self.pos_trans = nn.Linear(2, d_model//2)
+            self.pos_trans_norm = nn.LayerNorm(d_model//2)
 
 
 
@@ -74,8 +76,8 @@ class DeformableTransformer(nn.Module):
 
 
     def check_name(self,name):
-        # if 'encoder' in name or 'decoder' in name:
-        #     return False
+        if 'encoder' in name or 'decoder' in name:
+            return False
         # if 'reference_points' in name:
         #     return False
         return True
@@ -87,14 +89,14 @@ class DeformableTransformer(nn.Module):
             if not self.check_name(name):
                 p.requires_grad = False
 
-            name_str = name.split('.')
-            #print(name_str)
-            if name_str[0] == 'support':
-                if len(name_str) > 3 and 'layers' in name_str and (name_str[4] == 'out_proj' or name_str[3] in ['linear1','linear2','norm2','norm3']) and int(name_str[2]) == 0:                    #print('set!!!!')
-                    p.requires_grad = False
-                elif name_str[1] == 'norm':
-                    #print('set!!!!')
-                    p.requires_grad = False
+            # name_str = name.split('.')
+            # #print(name_str)
+            # if name_str[0] == 'support':
+            #     if len(name_str) > 3 and 'layers' in name_str and (name_str[4] == 'out_proj' or name_str[3] in ['linear1','linear2','norm2','norm3']) and int(name_str[2]) == 0:                    #print('set!!!!')
+            #         p.requires_grad = False
+            #     elif name_str[1] == 'norm':
+            #         #print('set!!!!')
+            #         p.requires_grad = False
 
         for m in self.modules():
             if isinstance(m, MSDeformAttn):
@@ -171,6 +173,7 @@ class DeformableTransformer(nn.Module):
         lvl_pos_embed_flatten = []
         spatial_shapes = []
         dict_4_atten = {'srcs':[],'shapes':[]}
+        
         for lvl, (src, mask, pos_embed) in enumerate(zip(srcs, masks, pos_embeds)):
             bs, c, h, w = src.shape
             spatial_shape = (h, w)
@@ -191,22 +194,15 @@ class DeformableTransformer(nn.Module):
         level_start_index = torch.cat((spatial_shapes.new_zeros((1, )), spatial_shapes.prod(1).cumsum(0)[:-1]))
         valid_ratios = torch.stack([self.get_valid_ratio(m) for m in masks], 1)
 
-        # concat the support feature to the flattend source signal
-        # support_feature = support_feature.permute(1,0,2)
-        # src_flatten_s = torch.cat([src_flatten,support_feature],1)
-        # lvl_pos_embed_flatten_s = torch.cat([lvl_pos_embed_flatten,torch.zeros_like(support_feature,device=support_feature.device)],1)
-        # mask_flatten_s = torch.cat([mask_flatten,torch.ones_like(support_feature[:,:,0],device=support_feature.device)],1)
-
         # encoder
-        # print(level_start_index)
-        # print(valid_ratios)
         memory = self.encoder(src_flatten, spatial_shapes, level_start_index, valid_ratios, lvl_pos_embed_flatten, mask_flatten)  
-        support_feature = support_feature.permute(1,0,2)
-        support_spatial = torch.as_tensor([[1,1]],dtype=torch.long,device=support_feature.device)
-        support_level = torch.as_tensor([0],device=support_feature.device)
-        support_valid_ratio = torch.as_tensor([[[1., 1.]]],device=support_feature.device)
-        support_feature = self.encoder(support_feature,support_spatial,support_level,support_valid_ratio,torch.zeros_like(support_feature,device=support_feature.device),torch.ones_like(support_feature[:,:,0],dtype=torch.bool,device=support_feature.device))
-        support_feature = support_feature.permute(1,0,2)
+
+        # support_feature = support_feature.permute(1,0,2)
+        # support_spatial = torch.as_tensor([[1,1]],dtype=torch.long,device=support_feature.device)
+        # support_level = torch.as_tensor([0],device=support_feature.device)
+        # support_valid_ratio = torch.as_tensor([[[1., 1.]]],device=support_feature.device)
+        # support_feature = self.encoder(support_feature,support_spatial,support_level,support_valid_ratio,torch.zeros_like(support_feature,device=support_feature.device),torch.ones_like(support_feature[:,:,0],dtype=torch.bool,device=support_feature.device))
+        # support_feature = support_feature.permute(1,0,2)
 
         #memory = memory[:,:src_flatten.shape[1],:]
         # prepare input for decoder
@@ -232,16 +228,19 @@ class DeformableTransformer(nn.Module):
             tgt = query_embed.unsqueeze(0).expand(bs, -1, -1)
             # reference_points = self.reference_points(query_embed).sigmoid()
 
-            support_attens = []
-            mem = memory.permute(1,0,2)
+            mem = memory
 
+            atten_multi_scale = []
+            start_idx = 0
+            _,support_attens = self.support(support_feature,mem)#,memory_key_padding_mask=torch.ones_like(mem[:,:,0],device=mem.device).permute(1,0), pos=torch.zeros_like(mem,device=mem.device))
+
+            support_atten_last_layer = support_attens[-1,:,:,:]
             for idx, (src_flatten,src_shape) in enumerate(zip(dict_4_atten['srcs'],dict_4_atten['shapes'])):
-                _,support_atten = self.support(support_feature,mem,memory_key_padding_mask=torch.ones([mem.shape[1],mem.shape[0]],device=mem.device), pos=torch.zeros_like(mem,device=mem.device))
 
-
+                support_atten = support_atten_last_layer[:,:,start_idx:start_idx+src_shape[-1]*src_shape[-2]]
                 _,support_atten = self.get_query_embedd_from_support(support_atten,src_shape,orignal_shape,num_queries,mode)
-                support_attens.append(support_atten)
-
+                atten_multi_scale.append(support_atten)
+                start_idx = start_idx + src_shape[-1]*src_shape[-2]
             if mode=='training':
                 true_atten = torch.ones_like(true_atten,device=true_atten.device)
             reference_points = self.get_query_embedd_from_pred_atten_map(true_atten,orignal_shape,num_queries,mode)
@@ -252,6 +251,9 @@ class DeformableTransformer(nn.Module):
             #query_embeds = []
             # for i in range(pos.shape[0]):
             query_pos = self.pos_trans_norm(self.pos_trans(pos))
+            tgt = torch.cat([tgt,query_pos],dim=-1)
+
+            query_pos = None
             #query_embeds.append(query_embed)
             
             #query_embed = torch.stack(query_embeds,dim=0)
@@ -267,12 +269,12 @@ class DeformableTransformer(nn.Module):
         inter_references_out = inter_references
         # if self.two_stage:
         #     return hs, init_reference_out, inter_references_out, enc_outputs_class, enc_outputs_coord_unact
-        return hs, torch.stack(support_attens,dim=0), init_reference_out, inter_references_out, None, None
+        return hs, torch.stack(atten_multi_scale,dim=0), init_reference_out, inter_references_out, None, None
 
-    def get_query_embedd_from_support(self,support_atten,src_shape,orignal_shape,num_queries,mode='training'):
+    def get_query_embedd_from_support(self,support_atten,src_shape,orignal_shape,num_queries, mode='training'):
 
-        support_atten_last = support_atten[-1,:,:,:]
-        pred_atten_map = support_atten_last.reshape(src_shape[0],1,src_shape[2],src_shape[3])
+
+        pred_atten_map = support_atten.reshape(src_shape[0],1,src_shape[2],src_shape[3])
 
         pred_atten_map = F.interpolate(pred_atten_map,size=[orignal_shape[2],orignal_shape[3]],mode='bilinear')
 
@@ -419,7 +421,6 @@ class DeformableTransformerEncoder(nn.Module):
         reference_points = self.get_reference_points(spatial_shapes, valid_ratios, device=src.device)
         for _, layer in enumerate(self.layers):
             output = layer(output, pos, reference_points, spatial_shapes, level_start_index, padding_mask)
-
         return output
 
 

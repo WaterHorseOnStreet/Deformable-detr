@@ -64,7 +64,7 @@ class DeformableDETR(nn.Module):
         self.input_proj = nn.Conv2d(backbone[0].num_channels[-1], hidden_dim, kernel_size=1)
 
         if not two_stage:
-            self.query_embed = nn.Embedding(num_queries, hidden_dim)
+            self.query_embed = nn.Embedding(num_queries, hidden_dim//2)
         if num_feature_levels > 1:
             num_backbone_outs = len(self.backbone.strides)
             input_proj_list = []
@@ -335,11 +335,11 @@ class SetCriterion(nn.Module):
             l_kl = F.kl_div(q, p, size_average=False,log_target=True) * (T**2) / b
             l_kls += l_kl
 
-            if i == pred_attens.shape[0] - 1:
-                img_pred = torchvision.transforms.ToPILImage()(pred_atten[0,:,:,:])
-                img_gt = torchvision.transforms.ToPILImage()(attens.decompose()[0][0,:,:,:])
-                img_pred.save('pred_{}.png'.format(i))
-                img_gt.save('gt_{}.png'.format(i))
+            # if i == pred_attens.shape[0] - 1:
+            #     img_pred = torchvision.transforms.ToPILImage()(pred_atten[0,:,:,:])
+            #     img_gt = torchvision.transforms.ToPILImage()(attens.decompose()[0][0,:,:,:])
+            #     img_pred.save('pred_{}.png'.format(i))
+            #     img_gt.save('gt_{}.png'.format(i))
 
         losses = {}
 

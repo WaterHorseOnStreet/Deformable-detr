@@ -82,7 +82,7 @@ class CocoDetection(VisionDataset):
         if self.transforms is not None:
             img, target = self.transforms(img, target)
 
-        return img, target
+        return img, target, path
 
     def __len__(self):
         return len(self.ids)

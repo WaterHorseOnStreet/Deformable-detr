@@ -87,11 +87,12 @@ class CocoDetection(TvCocoDetection):
         return img_patch
 
     def __getitem__(self, idx):
-        img, target = super(CocoDetection, self).__getitem__(idx)
+        img, target, path = super(CocoDetection, self).__getitem__(idx)
         image_id = self.ids[idx]
         if len(target) > 0:
             if 'ignore' in target[0]:
                 target = [tar for tar in target if tar['ignore'] == 0]
+
         target = {'image_id': image_id, 'annotations': target}
         
         
@@ -101,6 +102,7 @@ class CocoDetection(TvCocoDetection):
 
         attenmap = self.bbox2attenmap(target['boxes'],img)
         attenmap = attenmap.filter(ImageFilter.GaussianBlur(radius = 10))
+
         if self._transforms is not None:
             state = torch.get_rng_state()
             old_state = random.getstate()
@@ -110,7 +112,7 @@ class CocoDetection(TvCocoDetection):
             attenmap, target_no_use = self._atten_transform(attenmap,target_no_use)
 
         attenmap = attenmap[2,:,:]
-        return {'image':img, 'target':target, 'atten_map':attenmap.unsqueeze(0), 'patch':self.patch}
+        return {'image':img, 'target':target, 'atten_map':attenmap.unsqueeze(0), 'patch':self.patch,'path':path}
 
 
 def convert_coco_poly_to_mask(segmentations, height, width):
@@ -235,15 +237,15 @@ def build_cityperson(image_set, args):
     assert root.exists(), f'provided COCO path {root} does not exist'
     mode = 'instances'
     # for cityperson dataset, data not avaliable now
-    PATHS = {
-        "train": (root / "leftimage8bit" , root / "cityscapes_ann" / 'train.json'),
-        "val": (root / "leftimage8bit"/ "leftImg8bit_trainvaltest" /"leftImg8bit/val", root / "cityscapes_ann" / 'val_gt.json'),
-    }
-    # for clatech pedestrian dataset, data avaliable now
     # PATHS = {
-    #     "train": (root / "images", root / "annotations" / 'train.json'),
-    #     "val": (root / "images", root / "annotations" / 'test.json'),
+    #     "train": (root / "leftimage8bit" , root / "cityscapes_ann" / 'train.json'),
+    #     "val": (root / "leftimage8bit"/ "leftImg8bit_trainvaltest" /"leftImg8bit/val", root / "cityscapes_ann" / 'val_gt.json'),
     # }
+    # for clatech pedestrian dataset, data avaliable now
+    PATHS = {
+        "train": (root / "images", root / "annotations" / 'train.json'),
+        "val": (root / "images", root / "annotations" / 'test.json'),
+    }
     img_folder, ann_file = PATHS[image_set]
     dataset = CocoDetection(img_folder, ann_file, transforms=make_coco_transforms(image_set,False), atten_transform = make_coco_transforms(image_set,True), return_masks=args.masks,
                             cache_mode=args.cache_mode, local_rank=get_local_rank(), local_size=get_local_size())

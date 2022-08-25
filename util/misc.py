@@ -323,16 +323,18 @@ def support_collate_fn(batch):
     targets = []
     attens = []
     patches = []
+    paths = []
     for sample in batch:
         imgs.append(sample['image'])
         targets.append(sample['target'])
         attens.append(sample['atten_map'])
         patches.append(sample['patch'])
+        paths.append(sample['path'])
 
     imgs = nested_tensor_from_tensor_list(imgs)
     attens = nested_tensor_from_tensor_list(attens)
     patches = nested_tensor_from_tensor_list(patches)
-    return tuple((imgs,attens,patches,targets))
+    return tuple((imgs,attens,patches,targets,paths))
     
 def nested_tensor_from_tensor_list(tensor_list: List[Tensor]):
     # TODO make this more general

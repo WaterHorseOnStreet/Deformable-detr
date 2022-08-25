@@ -23,7 +23,7 @@ import datasets
 import util.misc as utils
 import datasets.samplers as samplers
 from datasets import build_dataset, get_coco_api_from_dataset
-from engine import evaluate, train_one_epoch,evaluate_caltech_map
+from engine import evaluate, train_one_epoch,evaluate_caltech_map,evaluate_caltech_mr
 from models import build_model
 import os
 
@@ -75,7 +75,7 @@ def get_args_parser():
                         help="Number of encoding layers in the transformer")
     parser.add_argument('--dec_layers', default=6, type=int,
                         help="Number of decoding layers in the transformer")
-    parser.add_argument('--emb_layers', default=[2,1], type=int,
+    parser.add_argument('--emb_layers', default=[1,2], type=int,
                         help="Number of embedding layers in the transformer")
     parser.add_argument('--dim_feedforward', default=1024, type=int,
                         help="Intermediate size of the feedforward layers in the transformer blocks")
@@ -135,7 +135,7 @@ def get_args_parser():
     parser.add_argument('--eval', action='store_true')
     parser.add_argument('--num_workers', default=2, type=int)
     parser.add_argument('--cache_mode', default=False, action='store_true', help='whether to cache images on memory')
-    parser.add_argument('--eval_mode', default='map', help='whether to cache images on memory')
+    parser.add_argument('--eval_mode', default='mr', help='whether to cache images on memory')
     parser.add_argument('--load_state', default=True, help='whether to cache images on memory')
     parser.add_argument('--is_supp', default=False, help='is for support backbone')
 
@@ -252,8 +252,6 @@ def main(args):
     lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, args.lr_drop)
 
     if args.load_state:
-        
-
         cp_path = os.path.join(here,'./checkpoint/r50_deformable_detr_single_scale_dc5-checkpoint.pth')
         # cp_path = os.path.join(here,'./output/random_train_true_test/checkpoint0004.pth')
         cp = torch.load(cp_path)
@@ -285,7 +283,7 @@ def main(args):
         # lr_scheduler.load_state_dict(lks)
 
     if args.distributed:
-        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu])#,find_unused_parameters=True)
+        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu],find_unused_parameters=True)
         model_without_ddp = model.module
 
     if args.dataset_file == "coco_panoptic":
@@ -369,7 +367,10 @@ def main(args):
                 test_stats, coco_evaluator = evaluate_caltech_map(
                     model, criterion, postprocessors, data_loader_val, device, args.output_dir
                 ) 
-
+        if args.eval_mode == 'mr':
+            evaluate_caltech_mr(
+                    model, criterion, postprocessors, data_loader_val, device, args.output_dir
+                ) 
         log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
                      **{f'test_{k}': v for k, v in test_stats.items()},
                      'epoch': epoch,

@@ -47,7 +47,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
     # samples, targets = prefetcher.next()
 
     # for samples, targets in metric_logger.log_every(data_loader, print_freq, header):
-    for samples, attens, support_imgs, targets in metric_logger.log_every(data_loader, print_freq, header):
+    for samples, attens, support_imgs, targets, paths in metric_logger.log_every(data_loader, print_freq, header):
         samples = samples.to(device)
         attens = attens.to(device)
         support_imgs = support_imgs.to(device)
@@ -191,6 +191,105 @@ def evaluate(model, criterion, postprocessors, data_loader, base_ds, device, out
         stats['PQ_th'] = panoptic_res["Things"]
         stats['PQ_st'] = panoptic_res["Stuff"]
     return stats, coco_evaluator
+
+@torch.no_grad()
+def evaluate_caltech_mr(model, criterion, postprocessors, data_loader, device, output_dir_caltech):
+    model.eval()
+    criterion.eval()
+
+    metric_logger = utils.MetricLogger(delimiter="  ")
+    header = 'Test:'
+    idx = 0
+    for samples, attens, support_imgs, targets, paths in metric_logger.log_every(data_loader, 100, header):
+
+        samples = samples.to(device)
+        targets = [{k: v.to(device) for k, v in t.items()} for t in targets ]
+        support_imgs = support_imgs.to(device)
+        attens = attens.to(device)
+        outputs = model(samples,support_imgs,attens.decompose()[0],mode='test')
+
+        # do not save attention maps considering meomery
+        # if 'pred_atten' in outputs:
+        #     GetAttentionMap(attens,outputs['pred_atten'],idx,output_dir_caltech)
+        #     idx = idx +1
+        outputs.pop('pred_atten')
+
+        orig_target_sizes = torch.stack([t["orig_size"].to(device) for t in targets], dim=0)
+        
+        results = postprocessors['bbox'](outputs, orig_target_sizes)  
+
+
+        # boxes_gt = box_ops.box_cxcywh_to_xyxy(targets['boxes'])
+
+        # # and from relative [0, 1] to absolute [0, height] coordinates
+        # img_h, img_w = orig_target_sizes.unbind(1)
+
+        # scale_fct = torch.stack([img_w, img_h, img_w, img_h], dim=1)
+        # boxes_gt = boxes_gt * scale_fct[:, None, :]
+
+        for result, target, path in zip(results, targets, paths):
+            #predictions.append(result)
+            #targets.append(target)
+            pre_boxes = box_ops.xywh_to_xyxy(result['boxes'])
+            image_id = path
+            scores = result['scores']
+
+
+            boxes_gt = box_ops.xywh_to_xyxy(target['boxes'])
+
+            # and from relative [0, 1] to absolute [0, height] coordinates
+            img_h, img_w = orig_target_sizes.unbind(1)
+
+            scale_fct = torch.stack([img_w, img_h, img_w, img_h], dim=1)
+            boxes_gt = boxes_gt * scale_fct[:, None, :]
+            boxes_gt = boxes_gt.squeeze(0).cpu()
+            
+            
+            image_path_id = image_id.split(".")[0]
+
+            image_number = int(''.join([str(d) for d in image_path_id][-5:]))
+
+            if (image_number + 1) % 30 == 0:
+                
+                image_path_txt = ''.join([str(d) for d in image_path_id][-6:])+'.txt'
+                image_path_v = ''.join([str(d) for d in image_path_id][6:10])
+                image_path_set = ''.join([str(d) for d in image_path_id][0:5])
+                # if len(image_path_set) == 1:
+                #     image_path_set = '0' + image_path_set
+                # image_path_set = 'set' + image_path_set
+
+            
+                if output_dir_caltech:
+                    if not os.path.exists(os.path.join(output_dir_caltech, image_path_set)):
+                        os.mkdir(os.path.join(output_dir_caltech,image_path_set))
+                    if not os.path.exists(os.path.join(output_dir_caltech, image_path_set, image_path_v)):
+                        os.mkdir(os.path.join(output_dir_caltech,image_path_set, image_path_v))  
+                    with open(os.path.join(output_dir_caltech, image_path_set, image_path_v, image_path_txt), "w") as f:
+                        if len(scores) > 10:
+                            values, indices = torch.topk(scores, 10)
+                        else:
+                            indices = list(range(len(scores)))
+                        
+                        for i in indices:
+                            pre_box = pre_boxes[i]
+                            score = scores[i]
+                            pre_box = pre_box.tolist()
+                            if score >= 0.05:
+                                for box in pre_box:
+                                    f.write(str(box)+",")
+                                f.write(str(score.item())+"\n")
+                        # f.write("\n")
+                        # f.write("\n")
+                        # for bg in boxes_gt:
+                        #     for b in bg:
+                        #         f.write(str(b.item())+",")
+                        #     f.write("\n")
+
+                        # f.write(str(img_h.cpu().item())+"\n")
+                        # f.write(str(img_w.cpu().item())+"\n")
+
+                else:
+                    print('No valid output path for caltech evaluation.')
 
 @torch.no_grad()
 def evaluate_caltech_map(model, criterion, postprocessors, data_loader, device, output_dir_caltech):
@@ -419,7 +518,7 @@ class NumpyArrayEncoder(JSONEncoder):
 
 def GetAttentionMap(atten,pred,id,outdir):
 
-    pred = pred[-1]
+    pred = torch.sum(pred,dim=0,keepdim=False)
     b,c,w,h = pred.shape
 
     atten = atten.decompose()[0][0]
